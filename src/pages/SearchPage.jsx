@@ -106,7 +106,7 @@ export default function SearchPage({ ticker, setTicker, favorites, toggleFav, go
           </Card>
           <Card>
             <H2 sub="可以自己畫線、加指標">TradingView 互動圖表</H2>
-            <TradingViewChart ticker={data.ticker} />
+            <TradingViewChart ticker={data.ticker} exchange={data.exchange} />
           </Card>
           <Card>
             <H2 sub="詳細白話解釋喺「分析」頁">主要數據</H2>

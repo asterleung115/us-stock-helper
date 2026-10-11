@@ -129,7 +129,7 @@ export default function AnalysisPage({ ticker, setTicker, favorites, toggleFav }
 
       <Card>
         <H2 sub="好似 YouTuber 咁自己畫線、加指標">TradingView 互動圖表</H2>
-        <TradingViewChart ticker={data.ticker} />
+        <TradingViewChart ticker={data.ticker} exchange={data.exchange} />
       </Card>
 
       {/* 基本分析 */}

@@ -81,6 +81,7 @@ def fetch_fundamentals(t: yf.Ticker, symbol: str):
         "industry": info.get("industry"),
         "description": info.get("longBusinessSummary"),
         "url": info.get("website"),
+        "exchange": info.get("exchange"),
         "beta": num(info.get("beta")) or num(info.get("beta3Year")),
     }
     if out["type"] == "etf":
@@ -124,6 +125,16 @@ def fetch_fundamentals(t: yf.Ticker, symbol: str):
 
 def main():
     tickers = json.loads((ROOT / "scripts" / "tickers.json").read_text())
+    # 加埋「潛力觀察」名單入面嘅股票，等用戶撳入去都有完整數據
+    screener = DATA / "screener.json"
+    if screener.exists():
+        try:
+            picks = json.loads(screener.read_text()).get("picks", {})
+            extra = sorted({t for lst in picks.values() for t in lst} - set(tickers))
+            print(f"加入潛力觀察名單嘅 {len(extra)} 隻：{extra}")
+            tickers += extra
+        except Exception as e:
+            print(f"讀唔到 screener.json：{e}", file=sys.stderr)
     PRICES.mkdir(parents=True, exist_ok=True)
     FUNDS.mkdir(parents=True, exist_ok=True)
     ok, failed = [], []

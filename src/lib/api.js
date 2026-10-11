@@ -20,7 +20,7 @@ const TTL = 10 * 60 * 1000;
 const BASE = import.meta.env.BASE_URL || './';
 
 /** 帶逾時嘅 fetch，回傳 JSON */
-async function getJSON(url, timeoutMs = 12000) {
+export async function getJSON(url, timeoutMs = 12000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -232,8 +232,9 @@ export async function getStock(rawTicker) {
   }
   nextEarnings = snap?.nextEarnings || null;
   const fundUpdated = snap?.updated || null;
+  const exchange = snap?.exchange || null;
 
-  const data = { ticker, prices, priceSource, quote, fund, fundSource, info, notes, etf, nextEarnings, fundUpdated };
+  const data = { ticker, prices, priceSource, quote, fund, fundSource, info, notes, etf, nextEarnings, fundUpdated, exchange };
   cache.set(ticker, { at: Date.now(), data });
   return data;
 }

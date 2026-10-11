@@ -3,15 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { useTheme } from './theme.jsx';
+import { tvSymbol } from './TVWidget.jsx';
 
-/** Yahoo 格式（BRK-B）轉 TradingView 格式（BRK.B） */
-const tvSymbol = (t) => t.replace(/-/g, '.');
-
-export default function TradingViewChart({ ticker, height = 560 }) {
+export default function TradingViewChart({ ticker, exchange, height = 560 }) {
   const ref = useRef(null);
   const { dark } = useTheme();
   const [failed, setFailed] = useState(false);
-  const symbol = tvSymbol(ticker);
+  const symbol = tvSymbol(ticker, exchange);
 
   useEffect(() => {
     const box = ref.current;

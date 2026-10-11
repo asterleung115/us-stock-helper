@@ -1,10 +1,11 @@
 // 主程式：頂部導覽 + 各頁面。用網址 # 記住而家喺邊頁（例如 #analysis），方便分享同返回。
 import { useEffect, useState } from 'react';
-import { BookOpen, Search, BarChart3, GitCompare, Map, Calculator, Settings, TrendingUp } from 'lucide-react';
+import { BookOpen, Search, BarChart3, Lightbulb, GitCompare, Map, Calculator, Settings, TrendingUp } from 'lucide-react';
 import LearnPage from './pages/LearnPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import AnalysisPage from './pages/AnalysisPage.jsx';
 import ComparePage from './pages/ComparePage.jsx';
+import IdeasPage from './pages/IdeasPage.jsx';
 import PathPage from './pages/PathPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
@@ -15,6 +16,7 @@ const TABS = [
   ['learn', '教學', BookOpen],
   ['search', '搜尋股票', Search],
   ['analysis', '分析', BarChart3],
+  ['ideas', '潛力觀察', Lightbulb],
   ['compare', '比較', GitCompare],
   ['path', '學習路徑', Map],
   ['tools', '工具', Calculator],
@@ -73,6 +75,7 @@ export default function App() {
         {tab === 'learn' && <LearnPage />}
         {tab === 'search' && <SearchPage {...shared} />}
         {tab === 'analysis' && <AnalysisPage {...shared} />}
+        {tab === 'ideas' && <IdeasPage {...shared} />}
         {tab === 'compare' && <ComparePage {...shared} />}
         {tab === 'path' && <PathPage />}
         {tab === 'tools' && <ToolsPage />}

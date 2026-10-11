@@ -11,6 +11,7 @@
 | 教學 | 7 課睇圖教學：K 線、成交量、移動平均線、支持阻力、RSI、MACD、趨勢線。每課一步一步解釋，配互動圖表，最後有「試下睇」練習（可以無限換題），進度會記低。 |
 | 搜尋股票 | 輸入代號（例如 AAPL、TSLA、NVDA），睇現價、公司簡介、走勢圖（K 線 + 50／200 日線 + 成交量）、市值、市盈率、EPS、收入增長、股息等。可以收藏股票。 |
 | 分析 | 技術分析（趨勢、趨勢線、RSI、MACD、支持阻力、波幅、最大跌幅、相對大市）+ 基本分析（估值、增長、賺錢能力、負債），每個數字都有白話解釋，最後俾出「相對值得考慮／中性／風險較高」同理由。評分規則喺頁面底公開。 |
+| 潛力觀察 | 每晚由標普 500 按四套公開條件篩出觀察名單：分析員目標價、升勢未過熱、高增長又賺錢、賺錢公司回落中。另有全部篩選數據表。只係篩選結果，唔係推薦。 |
 | 比較 | 2–3 隻股票同一起點當 100 比較表現，再並排比較主要數據。 |
 | 學習路徑 | 點樣開始投資美股（可剔完成）、風險管理、常見錯誤、35 個詞彙（可搜尋）。 |
 | 工具 | 倉位／風險計算機（由止蝕位反推買幾多股）、定投複利計算機。 |
@@ -31,18 +32,20 @@ npm run preview    # 預覽 build 好嘅版本
 
 ### 每晚自動更新（GitHub Actions）
 
-`.github/workflows/update-and-deploy.yml` 會喺每個美股交易日收市後（UTC 22:30）：
+`.github/workflows/update-and-deploy.yml` 會喺每個美股交易日收市後（UTC 22:30）、每次 push 去 main、或者喺 Actions 頁手動撳「Run workflow」時：
 
-1. 用 `scripts/update_data.py`（yfinance）由 Yahoo Finance 攞 `scripts/tickers.json` 入面每隻股票嘅：
+1. `scripts/update_screener.py`：篩選標普 500 成份股（名單由 Wikipedia 攞），計回報、均線、RSI、波幅，再攞市盈率、收入增長、利潤率、分析員目標價同評級，按四套公開條件揀出「潛力觀察」名單 → `public/data/screener.json`。呢步失敗唔會阻止發佈。
+2. `scripts/update_data.py`：為 `scripts/tickers.json` 入面嘅股票，加埋潛力觀察名單入面嘅股票，攞：
    - 近 5 年每日股價 → `public/data/prices/<T>.json`
-   - 公司資料、市盈率、EPS、收入增長、利潤率、股息、負債、ROE、下次業績日期 → `public/data/fundamentals/<T>.json`
+   - 公司資料、財務數字、下次業績日期、交易所 → `public/data/fundamentals/<T>.json`
    - ETF：管理費、基金規模、十大持股
-2. 有改動就 commit 返入 repo
-3. Build 網站，發佈去 GitHub Pages
+3. Build 網站，發佈去 GitHub Pages。
 
-想加減股票：改 `scripts/tickers.json`（用 Yahoo 格式，例如 `BRK-B`），push 上去，再去 Actions 頁撳「Run workflow」。中文簡介喺 `src/content/companies.js`，冇寫都照樣用到。
+數據**唔會** commit 返入 repo（免得 repo 越嚟越大）；repo 入面嘅 `public/data` 只係俾本機開發用嘅舊快照。
 
-**第一次設定**（只做一次）：GitHub repo → Settings → Pages → Source 揀「GitHub Actions」。之後網站會喺 `https://<你嘅用戶名>.github.io/<repo 名>/`。
+想加減股票：改 `scripts/tickers.json`（用 Yahoo 格式，例如 `BRK-B`），push 上去就會自動重新發佈。中文簡介喺 `src/content/companies.js`，冇寫都照樣用到。
+
+**第一次設定**（只做一次）：GitHub repo → Settings → Pages → Source 揀「GitHub Actions」。
 
 喺自己電腦手動更新：
 
@@ -56,7 +59,7 @@ python scripts/update_data.py
 | 數據 | 來源 | 唔得嘅時候 |
 | --- | --- | --- |
 | 股價 K 線 | 每晚快照（`public/data/prices/`） | 有 Alpha Vantage key：任何股票最近 100 日 → 否則用示範走勢（畫面會清楚標明） |
-| 即時報價 | Finnhub `/quote`（要 key） | 用最後收市價 |
+| 即時報價 | Finnhub `/quote`（要 key）；另外股票頁有 TradingView 報價小工具（唔使 key） | 用最後收市價 |
 | 財務數據 | Finnhub（要 key）→ 每晚快照 → Alpha Vantage（要 key） | 顯示「未有數據」，用戶可以撳掣睇示範畫面 |
 
 - 唔加任何 key 都用得：清單入面嘅股票全部有真實股價同財務數據（每晚更新）。key 只係用嚟睇清單以外嘅股票或者即時報價。

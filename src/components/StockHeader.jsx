@@ -3,9 +3,10 @@ import { Star } from 'lucide-react';
 import { money, pct, upDown } from '../lib/format.js';
 import { SOURCE_LABEL } from '../lib/api.js';
 import { SourceBadge, Note } from './ui.jsx';
+import TVWidget, { tvSymbol } from './TVWidget.jsx';
 
 export default function StockHeader({ data, isFav, onToggleFav }) {
-  const { ticker, quote, fund, info, priceSource, fundSource, notes, nextEarnings } = data;
+  const { ticker, quote, fund, info, priceSource, fundSource, notes, nextEarnings, exchange } = data;
   const name = info?.name || fund?.name || ticker;
   const sector = info?.sector || fund?.sector;
   return (
@@ -34,6 +35,13 @@ export default function StockHeader({ data, isFav, onToggleFav }) {
           </button>
         </div>
       </div>
+      {quote.source !== 'finnhub' && priceSource !== 'mock' && (
+        <div className="rounded-xl border border-ink-200 px-2 dark:border-ink-800">
+          <div className="px-1 pt-2 text-[11px] text-ink-500">即時報價（TradingView，交易時段內會自動更新）</div>
+          <TVWidget name="single-quote" config={{ symbol: tvSymbol(ticker, exchange), width: '100%' }} height={90}
+            fallback={<p className="px-1 pb-2 text-xs text-ink-500">呢度載入唔到即時報價。可以去「設定」加免費 Finnhub key，或者睇下面嘅 TradingView 圖表。</p>} />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
         數據來源：
         <SourceBadge label={`股價：${SOURCE_LABEL[priceSource]}`} mock={priceSource === 'mock'} />
