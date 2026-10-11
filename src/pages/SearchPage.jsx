@@ -9,6 +9,7 @@ import { POPULAR_GROUPS, SNAPSHOT_TICKERS } from '../content/companies.js';
 import { PriceChart, Legend, MA_COLORS } from '../components/Charts.jsx';
 import StockHeader from '../components/StockHeader.jsx';
 import EtfInfo from '../components/EtfInfo.jsx';
+import TradingViewChart from '../components/TradingViewChart.jsx';
 import { Card, H2, Button, Loading, ErrorState, EmptyState, RangeTabs, RANGES, MockPriceBanner, Disclaimer } from '../components/ui.jsx';
 
 export function TickerInput({ onSubmit, placeholder = '輸入美股代號，例如 AAPL、TSLA、NVDA', autoFocus }) {
@@ -102,6 +103,10 @@ export default function SearchPage({ ticker, setTicker, favorites, toggleFav, go
             {data.priceSource === 'mock' && <MockPriceBanner ticker={data.ticker} />}
             <Legend items={[[MA_COLORS[50], '50 日均線'], [MA_COLORS[200], '200 日均線']]} />
             <PriceChart series={data.prices} mas={mas} bars={bars} />
+          </Card>
+          <Card>
+            <H2 sub="可以自己畫線、加指標">TradingView 互動圖表</H2>
+            <TradingViewChart ticker={data.ticker} />
           </Card>
           <Card>
             <H2 sub="詳細白話解釋喺「分析」頁">主要數據</H2>

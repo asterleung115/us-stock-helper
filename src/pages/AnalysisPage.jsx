@@ -7,6 +7,7 @@ import { mockFundamentals } from '../lib/mock.js';
 import { PriceChart, RsiChart, MacdChart, Legend, MA_COLORS } from '../components/Charts.jsx';
 import StockHeader from '../components/StockHeader.jsx';
 import EtfInfo from '../components/EtfInfo.jsx';
+import TradingViewChart from '../components/TradingViewChart.jsx';
 import { TickerInput } from './SearchPage.jsx';
 import { Card, H2, Button, Loading, ErrorState, EmptyState, Disclaimer, Reading, RangeTabs, RANGES, MockPriceBanner, Note } from '../components/ui.jsx';
 
@@ -124,6 +125,11 @@ export default function AnalysisPage({ ticker, setTicker, favorites, toggleFav }
           {Object.entries({ trend: '趨勢', momentum: '動能', risk: '風險（越高越穩）' }).map(([k, label]) => <ScoreBar key={k} label={label} value={tech.parts[k][0]} max={tech.parts[k][1]} />)}
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{tech.items.map((it) => <Reading key={it.key} item={it} />)}</div>
+      </Card>
+
+      <Card>
+        <H2 sub="好似 YouTuber 咁自己畫線、加指標">TradingView 互動圖表</H2>
+        <TradingViewChart ticker={data.ticker} />
       </Card>
 
       {/* 基本分析 */}
