@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-ink-50 font-sans text-[15px] antialiased dark:bg-ink-950; }
+:focus-visible { @apply outline-2 outline-offset-2 outline-brand-500; }
+h1, h2, h3 { text-wrap: balance; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
