@@ -246,8 +246,8 @@ export function getMarket() {
 }
 
 export const SOURCE_LABEL = {
-  snapshot: '內置快照',
-  'snapshot+alphavantage': '內置快照 + Alpha Vantage',
+  snapshot: '每日快照',
+  'snapshot+alphavantage': '每日快照 + Alpha Vantage',
   alphavantage: 'Alpha Vantage',
   finnhub: 'Finnhub',
   close: '最後收市價',
