@@ -178,8 +178,10 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
     print("完成：", {k: len(v) for k, v in picks.items()})
+    # GitHub Actions 註解：喺 run 頁面一眼睇到結果
+    print(f"::notice title=潛力觀察::{universe} {len(syms)} 隻，成功 {len(rows)} 隻；名單 " + ", ".join(f"{k}={len(v)}" for k, v in picks.items()))
     if len(rows) < min(50, len(syms) // 2):
-        print("成功數目太少，當失敗處理", file=sys.stderr)
+        print(f"::warning title=潛力觀察::成功數目太少（{len(rows)}），當失敗處理")
         sys.exit(1)
 
 

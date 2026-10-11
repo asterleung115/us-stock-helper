@@ -164,6 +164,7 @@ def main():
     }
     (DATA / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1))
     print(f"完成：{len(ok)} 隻成功，{len(failed)} 隻失敗 {failed}")
+    print(f"::notice title=個股數據::{len(ok)} 隻成功，{len(failed)} 隻失敗 {failed}")
     # 超過一半失敗就當整體失敗，GitHub Actions 會亮紅燈，舊數據唔會被覆蓋
     if len(failed) > len(tickers) / 2:
         sys.exit(1)
