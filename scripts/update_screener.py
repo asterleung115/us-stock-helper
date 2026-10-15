@@ -7,7 +7,8 @@
 1. 由 Wikipedia 攞標普 500 成份股名單（攞唔到就用 scripts/tickers.json）
 2. 一次過下載一年股價，計回報、均線、RSI、波幅、距 52 週高位
 3. 逐隻攞 Yahoo 公司資料：市盈率、收入增長、利潤率、分析員目標價同評級
-4. 按四套「公開、機械式」條件揀出觀察名單（每套最多 10 隻）
+4. 按七套「公開、機械式」條件揀出觀察名單：短期 3 套（睇股價走勢）、長期 4 套（睇公司質素）
+5. 將今日每套名單頭 10 隻同當時股價加入 picks-history.json，方便日後追蹤上榜後表現
 
 呢啲名單只係數據篩選結果，唔係買賣建議。條件改咗記得同步改 src/pages/IdeasPage.jsx 嘅說明文字。
 """
@@ -26,7 +27,9 @@ import yfinance as yf
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "public" / "data" / "screener.json"
+HISTORY = ROOT / "public" / "data" / "picks-history.json"  # workflow 會由 history 分支攞返舊記錄
 TOP_N = 10
+BENCH = "SPY"  # 用嚟比較表現嘅大市基準
 
 
 def num(x):
@@ -99,6 +102,8 @@ def info_for(sym):
                 "revG": num(i.get("revenueGrowth")),
                 "epsG": num(i.get("earningsGrowth")),
                 "margin": num(i.get("profitMargins")),
+                "roe": num(i.get("returnOnEquity")),
+                "de": (lambda v: v / 100 if v is not None else None)(num(i.get("debtToEquity"))),  # Yahoo 用百分比
                 "target": num(i.get("targetMeanPrice")),
                 "recMean": num(i.get("recommendationMean")),  # 1 = 強烈買入 … 5 = 賣出
                 "analysts": num(i.get("numberOfAnalystOpinions")),
@@ -110,10 +115,30 @@ def info_for(sym):
     return sym, None
 
 
-def pick(rows, cond, key, reverse=True):
+def qualify(rows, cond, key, reverse=True):
+    """所有符合條件嘅股票，已排好序"""
     sel = [r for r in rows if cond(r)]
     sel.sort(key=key, reverse=reverse)
-    return [r["t"] for r in sel[:TOP_N]]
+    return [r["t"] for r in sel]
+
+
+def update_history(market_date, bench_price, picks, by_t):
+    """每個交易日記低每套名單頭 10 隻同當時價錢；同一日重複行就覆蓋"""
+    try:
+        hist = json.loads(HISTORY.read_text()) if HISTORY.exists() else []
+    except Exception as e:
+        print(f"讀唔到 picks-history.json：{e}", file=sys.stderr)
+        hist = []
+    hist = [h for h in hist if h.get("d") != market_date]
+    hist.append({
+        "d": market_date,
+        "spy": bench_price,
+        "p": {k: [[t, by_t[t]["price"]] for t in v] for k, v in picks.items()},
+    })
+    hist.sort(key=lambda h: h["d"])
+    hist = hist[-800:]  # 大約 3 年
+    HISTORY.write_text(json.dumps(hist, ensure_ascii=False, separators=(",", ":")))
+    return len(hist)
 
 
 def main():
@@ -121,11 +146,17 @@ def main():
     print(f"篩選 {len(syms)} 隻（{universe}）")
 
     # 1) 股價（一次過下載，快好多）
-    df = yf.download(syms, period="1y", interval="1d", auto_adjust=True, group_by="ticker", threads=True, progress=False)
+    df = yf.download(syms + [BENCH], period="1y", interval="1d", auto_adjust=True, group_by="ticker", threads=True, progress=False)
+    market_date = str(df.index[-1].date())
+    try:
+        bench = df[BENCH]["Close"].dropna()
+        bench_price = round(float(bench.iloc[-1]), 2) if len(bench) else None
+    except Exception:
+        bench_price = None
     metrics = {}
     for s in syms:
         try:
-            m = price_metrics(df[s]["Close"]) if len(syms) > 1 else price_metrics(df["Close"])
+            m = price_metrics(df[s]["Close"])
             if m:
                 metrics[s] = m
         except Exception:
@@ -149,21 +180,33 @@ def main():
         r["upside"] = (r["target"] / r["price"] - 1) if r["target"] and r["price"] else None
         rows.append(r)
 
-    g = lambda r, k: r.get(k) if r.get(k) is not None else float("nan")  # noqa: E731
-    picks = {
-        # 分析員目標價上升空間：至少 10 個分析員、平均評級屬「買入」、目標價高過現價 15% 以上
-        "analyst": pick(rows, lambda r: (r["analysts"] or 0) >= 10 and (r["recMean"] or 9) <= 2.2 and (r["upside"] or 0) >= 0.15,
-                        key=lambda r: r["upside"]),
-        # 強勢趨勢但未過熱：股價 > 50 日線 > 200 日線、RSI 50–70、年化波幅 < 60%，按 6 個月回報排
-        "momentum": pick(rows, lambda r: r["ma200"] and r["price"] > r["ma50"] > r["ma200"] and 50 <= r["rsi"] <= 70
-                         and r["vol"] < 0.6 and (r["r6m"] or 0) > 0, key=lambda r: r["r6m"]),
+    g = lambda r, k: r.get(k) if r.get(k) is not None else -1  # noqa: E731
+    qual = {
+        # ── 短期（幾星期至幾個月）：睇股價走勢 ──
+        # 升勢強勁但未過熱：股價 > 50 日線 > 200 日線、RSI 50–70、年化波幅 < 60%，按 6 個月回報排
+        "momentum": qualify(rows, lambda r: r["ma200"] and r["price"] > r["ma50"] > r["ma200"] and 50 <= r["rsi"] <= 70
+                            and r["vol"] < 0.6 and (r["r6m"] or 0) > 0, key=lambda r: r["r6m"]),
+        # 接近一年高位：距 52 週高位 5% 以內、股價 > 50 日線 > 200 日線、近 1 個月有升、年化波幅 < 50%，按 3 個月回報排
+        "breakout": qualify(rows, lambda r: r["ma200"] and r["fromHi"] >= -0.05 and r["price"] > r["ma50"] > r["ma200"]
+                            and (r["r1m"] or 0) > 0 and r["vol"] < 0.5, key=lambda r: g(r, "r3m")),
+        # 長期升勢中短暫回調：股價仍高過 200 日線、6 個月回報為正、但 RSI 跌到 40 以下，按 RSI 由低至高排
+        "dip": qualify(rows, lambda r: r["ma200"] and r["price"] > r["ma200"] and (r["r6m"] or 0) > 0 and r["rsi"] < 40,
+                       key=lambda r: r["rsi"], reverse=False),
+        # ── 長期（一年以上）：睇公司質素 ──
         # 高增長又賺錢：收入增長 ≥ 20%、淨利潤率 ≥ 10%、有正市盈率，按收入增長排
-        "growth": pick(rows, lambda r: (r["revG"] or 0) >= 0.2 and (r["margin"] or 0) >= 0.1 and (r["pe"] or 0) > 0,
-                       key=lambda r: r["revG"]),
-        # 優質股回調：淨利潤率 ≥ 15%、收入仍增長 ≥ 5%、股價比 52 週高位低 15%–35%，按分析員上升空間排
-        "pullback": pick(rows, lambda r: (r["margin"] or 0) >= 0.15 and (r["revG"] or 0) >= 0.05 and -0.35 <= r["fromHi"] <= -0.15,
-                         key=lambda r: g(r, "upside") if not math.isnan(g(r, "upside")) else -1),
+        "growth": qualify(rows, lambda r: (r["revG"] or 0) >= 0.2 and (r["margin"] or 0) >= 0.1 and (r["pe"] or 0) > 0,
+                          key=lambda r: r["revG"]),
+        # 穩健優質、價錢合理：淨利潤率 ≥ 20%、ROE ≥ 15%、收入增長 ≥ 5%、預測市盈率 0–25、負債/股東權益 < 1.5，按 ROE 排
+        "quality": qualify(rows, lambda r: (r["margin"] or 0) >= 0.2 and (r["roe"] or 0) >= 0.15 and (r["revG"] or 0) >= 0.05
+                           and 0 < (r["fpe"] or 0) <= 25 and r["de"] is not None and r["de"] < 1.5, key=lambda r: r["roe"]),
+        # 賺錢公司回落中：淨利潤率 ≥ 15%、收入仍增長 ≥ 5%、股價比 52 週高位低 15%–35%，按分析員上升空間排
+        "pullback": qualify(rows, lambda r: (r["margin"] or 0) >= 0.15 and (r["revG"] or 0) >= 0.05 and -0.35 <= r["fromHi"] <= -0.15,
+                            key=lambda r: g(r, "upside")),
+        # 分析員睇好：至少 10 個分析員、平均評級屬「買入」、目標價高過現價 15% 以上，按上升空間排
+        "analyst": qualify(rows, lambda r: (r["analysts"] or 0) >= 10 and (r["recMean"] or 9) <= 2.2 and (r["upside"] or 0) >= 0.15,
+                           key=lambda r: r["upside"]),
     }
+    picks = {k: v[:TOP_N] for k, v in qual.items()}  # update_data.py 會攞呢啲股票嘅詳細數據
 
     def rnd(v):
         return round(v, 4) if isinstance(v, float) else v
@@ -172,14 +215,18 @@ def main():
         "updated": datetime.now(timezone.utc).isoformat(timespec="minutes"),
         "universe": universe,
         "count": len(rows),
+        "date": market_date,
+        "spy": bench_price,
         "picks": picks,
+        "qual": qual,
         "rows": [{k: rnd(v) for k, v in r.items()} for r in rows],
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
-    print("完成：", {k: len(v) for k, v in picks.items()})
+    n_hist = update_history(market_date, bench_price, picks, {r["t"]: r for r in rows})
+    print("完成：", {k: len(v) for k, v in qual.items()}, f"；歷史記錄 {n_hist} 日")
     # GitHub Actions 註解：喺 run 頁面一眼睇到結果
-    print(f"::notice title=潛力觀察::{universe} {len(syms)} 隻，成功 {len(rows)} 隻；名單 " + ", ".join(f"{k}={len(v)}" for k, v in picks.items()))
+    print(f"::notice title=潛力觀察::{universe} {len(syms)} 隻，成功 {len(rows)} 隻；符合條件 " + ", ".join(f"{k}={len(v)}" for k, v in qual.items()) + f"；歷史記錄 {n_hist} 日")
     if len(rows) < min(50, len(syms) // 2):
         print(f"::warning title=潛力觀察::成功數目太少（{len(rows)}），當失敗處理")
         sys.exit(1)

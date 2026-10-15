@@ -13,7 +13,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write # 只用嚟將潛力股歷史記錄存入 history 分支
   pages: write
   id-token: write
 
@@ -35,10 +35,40 @@ jobs:
           python-version: "3.12"
       - run: pip install -r scripts/requirements.txt
 
-      # 潛力觀察：篩選標普 500。失敗都繼續，只係嗰頁會用 repo 入面嘅舊數據
+      # 潛力股歷史記錄存喺獨立嘅 history 分支（唔會令 main 越嚟越大）
+      - name: 讀取潛力股歷史記錄
+        id: loadhist
+        continue-on-error: true
+        run: |
+          if git ls-remote --exit-code --heads origin history; then
+            git fetch --depth=1 origin history
+            git show FETCH_HEAD:picks-history.json > public/data/picks-history.json
+          else
+            echo "未有 history 分支，由今日開始記錄"
+          fi
+
+      # 潛力觀察：篩選標普 500。失敗都繼續，只係嗰頁會冇最新數據
       - name: 篩選標普 500
+        id: screener
         run: python scripts/update_screener.py
         continue-on-error: true
+
+      # 讀取舊記錄失敗嘅話唔好儲存，免得覆蓋咗舊記錄
+      - name: 儲存潛力股歷史記錄
+        if: steps.loadhist.outcome == 'success' && steps.screener.outcome == 'success'
+        continue-on-error: true
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          tmp=$(mktemp -d)
+          cp public/data/picks-history.json "$tmp/"
+          cd "$tmp"
+          git init -q -b history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add picks-history.json
+          git commit -q -m "潛力股歷史記錄 $(date -u +%F)"
+          git push -q --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" history
 
       # 個股數據（清單 + 潛力觀察名單入面嘅股票）。失敗就唔發佈，保留舊網站
       - name: 更新股價同財務數據
