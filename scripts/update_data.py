@@ -68,6 +68,41 @@ def next_earnings(t: yf.Ticker):
         return None
 
 
+def insider_6m(t: yf.Ticker):
+    """公司高層（insider）過去 6 個月買賣：買入／賣出次數同淨買入佔持股 %"""
+    try:
+        df = t.insider_purchases
+        if df is None or df.empty:
+            return None
+        df = df.set_index(df.columns[0])
+        get = lambda row, col: num(df.loc[row, col]) if row in df.index and col in df.columns else None  # noqa: E731
+        return {
+            "buys": get("Purchases", "Trans"),
+            "sells": get("Sales", "Trans"),
+            "netPct": get("% Net Shares Purchased (Sold)", "Shares"),
+        }
+    except Exception:
+        return None
+
+
+def street_data(t: yf.Ticker, info: dict):
+    """籌碼同分析員：機構持股、沽空、高層買賣、評級、目標價"""
+    short, prior = num(info.get("sharesShort")), num(info.get("sharesShortPriorMonth"))
+    return {
+        "instHeld": num(info.get("heldPercentInstitutions")),
+        "insiderHeld": num(info.get("heldPercentInsiders")),
+        "shortPct": num(info.get("shortPercentOfFloat")),
+        "shortRatio": num(info.get("shortRatio")),  # 要幾多日成交先平晒倉
+        "shortChange": (short / prior - 1) if short and prior else None,
+        "insider": insider_6m(t),
+        "recMean": num(info.get("recommendationMean")),  # 1 = 強烈買入 … 5 = 沽出
+        "analysts": num(info.get("numberOfAnalystOpinions")),
+        "target": num(info.get("targetMeanPrice")),
+        "targetHigh": num(info.get("targetHighPrice")),
+        "targetLow": num(info.get("targetLowPrice")),
+    }
+
+
 def fetch_fundamentals(t: yf.Ticker, symbol: str):
     info = t.info or {}
     qtype = (info.get("quoteType") or "").upper()
@@ -116,6 +151,7 @@ def fetch_fundamentals(t: yf.Ticker, symbol: str):
         "debtToEquity": de / 100 if de is not None else None,
         "roe": num(info.get("returnOnEquity")),
         "nextEarnings": next_earnings(t),
+        "street": street_data(t, info),
     })
     # 蝕錢公司 Yahoo 唔會俾 trailingPE：用 EPS 判斷
     if out["pe"] is None and out["eps"] is not None and out["eps"] < 0:
@@ -126,15 +162,20 @@ def fetch_fundamentals(t: yf.Ticker, symbol: str):
 def main():
     tickers = json.loads((ROOT / "scripts" / "tickers.json").read_text())
     # 加埋「潛力觀察」名單入面嘅股票，等用戶撳入去都有完整數據
-    screener = DATA / "screener.json"
-    if screener.exists():
-        try:
-            picks = json.loads(screener.read_text()).get("picks", {})
-            extra = sorted({t for lst in picks.values() for t in lst} - set(tickers))
-            print(f"加入潛力觀察名單嘅 {len(extra)} 隻：{extra}")
-            tickers += extra
-        except Exception as e:
-            print(f"讀唔到 screener.json：{e}", file=sys.stderr)
+    # 同埋「市場」頁嘅領漲領跌股，等用戶撳入去都有完整數據
+    wanted = set()
+    try:
+        picks = json.loads((DATA / "screener.json").read_text()).get("picks", {})
+        wanted |= {t for lst in picks.values() for t in lst}
+    except Exception as e:
+        print(f"讀唔到 screener.json：{e}", file=sys.stderr)
+    try:
+        wanted |= set(json.loads((DATA / "market.json").read_text()).get("tickers", []))
+    except Exception as e:
+        print(f"讀唔到 market.json：{e}", file=sys.stderr)
+    extra = sorted(wanted - set(tickers))
+    print(f"加入潛力觀察同市場頁嘅 {len(extra)} 隻：{extra}")
+    tickers += extra
     PRICES.mkdir(parents=True, exist_ok=True)
     FUNDS.mkdir(parents=True, exist_ok=True)
     ok, failed = [], []

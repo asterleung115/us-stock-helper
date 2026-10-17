@@ -1,11 +1,12 @@
 // 主程式：頂部導覽 + 各頁面。用網址 # 記住而家喺邊頁（例如 #analysis），方便分享同返回。
 import { useEffect, useState } from 'react';
-import { BookOpen, Search, BarChart3, Lightbulb, GitCompare, Map, Calculator, Settings, TrendingUp } from 'lucide-react';
+import { BookOpen, Search, BarChart3, Lightbulb, GitCompare, Map, Calculator, Settings, TrendingUp, LineChart } from 'lucide-react';
 import LearnPage from './pages/LearnPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import AnalysisPage from './pages/AnalysisPage.jsx';
 import ComparePage from './pages/ComparePage.jsx';
 import IdeasPage from './pages/IdeasPage.jsx';
+import MarketPage from './pages/MarketPage.jsx';
 import PathPage from './pages/PathPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
@@ -14,6 +15,7 @@ import { getIndex } from './lib/api.js';
 
 const TABS = [
   ['learn', '教學', BookOpen],
+  ['market', '市場', LineChart],
   ['search', '搜尋股票', Search],
   ['analysis', '分析', BarChart3],
   ['ideas', '潛力觀察', Lightbulb],
@@ -73,6 +75,7 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 py-5">
         {tab === 'learn' && <LearnPage />}
+        {tab === 'market' && <MarketPage {...shared} />}
         {tab === 'search' && <SearchPage {...shared} />}
         {tab === 'analysis' && <AnalysisPage {...shared} />}
         {tab === 'ideas' && <IdeasPage {...shared} />}

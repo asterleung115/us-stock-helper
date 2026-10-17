@@ -151,20 +151,124 @@ export function fundamental(f) {
   return { items, parts: { valuation: [val, 30], growth: [g, 25], profit: [p, 25], debt: [d, 20] }, score: val + g + p + d };
 }
 
+/* ======================= 籌碼面 ======================= */
+
+/**
+ * 美股冇台灣咁嘅「三大法人每日買賣」，用三樣公開數據代替：
+ * 機構持股比例、沽空比例（同變化）、公司高層過去 6 個月買賣。
+ */
+export function chips(st) {
+  if (!st || (st.instHeld == null && st.shortPct == null && !st.insider)) return null;
+  const items = [];
+  const inst = st.instHeld, sp = st.shortPct, ins = st.insider;
+
+  items.push({
+    key: 'inst', label: '機構持股', value: inst == null ? '—' : pct(inst, 0).replace('+', ''),
+    status: inst == null ? 'na' : inst >= 0.5 ? 'good' : inst >= 0.3 ? 'mid' : 'bad',
+    text: inst == null ? '冇數據。' : `基金、銀行等大機構持有大約 ${(inst * 100).toFixed(0)}% 股份。${inst >= 0.7 ? '大部分股份喺專業投資者手上，一般代表被廣泛認可。' : inst >= 0.5 ? '機構持股屬正常水平。' : inst >= 0.3 ? '機構持股偏少，股價可能較受散戶情緒影響。' : '機構好少持有，波動可能好大。'}`,
+  });
+  items.push({
+    key: 'short', label: '沽空比例', value: sp == null ? '—' : pct(sp, 1).replace('+', ''),
+    status: sp == null ? 'na' : sp < 0.05 ? 'good' : sp < 0.1 ? 'mid' : 'bad',
+    text: sp == null ? '冇數據。'
+      : `大約 ${(sp * 100).toFixed(1)}% 流通股被人沽空（即係賭佢跌）。${sp < 0.05 ? '屬正常水平。' : sp < 0.1 ? '偏高，有唔少人睇淡。' : '好高，好多人睇淡；但如果股價反升，沽空嘅人要買返，可能引發急升（軋空）。'}`
+        + (st.shortChange != null && Math.abs(st.shortChange) >= 0.1 ? `比上個月${st.shortChange > 0 ? '增加' : '減少'}咗 ${(Math.abs(st.shortChange) * 100).toFixed(0)}%。` : '')
+        + (st.shortRatio != null ? `以平均成交計，要 ${st.shortRatio.toFixed(1)} 日先平晒倉。` : ''),
+  });
+  const net = ins?.netPct;
+  items.push({
+    key: 'insider', label: '高層買賣（6 個月）',
+    value: !ins ? '—' : `買 ${ins.buys ?? 0} 次 / 賣 ${ins.sells ?? 0} 次`,
+    status: !ins ? 'na' : net != null && net > 0 ? 'good' : net != null && net < -0.05 ? 'bad' : 'mid',
+    text: !ins ? '冇數據。' : `${net != null && net > 0 ? '公司高層淨買入自己公司股票，通常係正面訊號：佢哋最清楚公司狀況。' : '高層淨賣出。呢個好常見（例如套現股票報酬、交稅），唔一定係壞事，但大量賣出就要留意。'}${net != null ? `淨買賣佔佢哋持股 ${pct(net, 1)}。` : ''}`,
+  });
+
+  const a = inst == null ? 15 : inst >= 0.7 ? 30 : inst >= 0.5 ? 24 : inst >= 0.3 ? 16 : 8;
+  let b = sp == null ? 20 : sp < 0.03 ? 40 : sp < 0.06 ? 32 : sp < 0.1 ? 22 : sp < 0.2 ? 12 : 4;
+  if (sp != null && st.shortChange != null) b = Math.max(0, Math.min(40, b + (st.shortChange > 0.1 ? -5 : st.shortChange < -0.1 ? 4 : 0)));
+  const c = !ins ? 15 : net != null && net > 0 ? 30 : net != null && net < -0.05 ? 8 : 18;
+  return { items, parts: { inst: [a, 30], short: [b, 40], insider: [c, 30] }, score: a + b + c };
+}
+
+/* ======================= 分析員 ======================= */
+
+export function analysts(st, price) {
+  if (!st || st.recMean == null || !st.analysts || st.analysts < 3) return null;
+  const up = st.target && price ? st.target / price - 1 : null;
+  const rec = st.recMean;
+  const recText = rec <= 1.5 ? '強烈買入' : rec <= 2.5 ? '買入' : rec <= 3.5 ? '持有' : '沽出';
+  const items = [
+    {
+      key: 'rec', label: '平均評級', value: `${recText}（${rec.toFixed(1)}）`,
+      status: rec <= 2.2 ? 'good' : rec <= 3 ? 'mid' : 'bad',
+      text: `${st.analysts} 個分析員嘅平均評級。1 分 = 強烈買入，5 分 = 沽出。分析員普遍偏樂觀，「持有」其實已經算保守。`,
+    },
+    {
+      key: 'target', label: '平均目標價', value: st.target ? `${money(st.target)}（${pct(up, 0)}）` : '—',
+      status: up == null ? 'na' : up >= 0.15 ? 'good' : up >= 0 ? 'mid' : 'bad',
+      text: st.target ? `分析員估計 12 個月後嘅平均價錢，最低 ${money(st.targetLow)}、最高 ${money(st.targetHigh)}。目標價經常改，亦經常估錯，只可以做參考。` : '冇數據。',
+    },
+  ];
+  const r = Math.round(((5 - rec) / 4) * 60);
+  const u = up == null ? 15 : up >= 0.3 ? 40 : up >= 0.15 ? 30 : up >= 0.05 ? 20 : up >= -0.05 ? 10 : 0;
+  return { items, upside: up, recText, score: Math.max(0, Math.min(100, r + u)) };
+}
+
+/* ======================= 價格攻防 ======================= */
+
+/** 用支持位／阻力位講吓而家股價喺邊、三個情境要留意乜 */
+export function priceBattle(tech) {
+  const p = tech.price;
+  const s1 = tech.sr.supports[0]?.price, s2 = tech.sr.supports[1]?.price, r1 = tech.sr.resistances[0]?.price, r2 = tech.sr.resistances[1]?.price;
+  const dS = s1 ? s1 / p - 1 : null, dR = r1 ? r1 / p - 1 : null;
+  let state, stateText;
+  if (!r1 && p >= tech.hi52 * 0.98) { state = '突破新高'; stateText = '股價喺一年高位附近，上面冇明顯阻力。'; }
+  else if (dS != null && dS > -0.02) { state = '接近支撐'; stateText = `股價離支持位 ${money(s1)} 只係 ${(Math.abs(dS) * 100).toFixed(1)}%，要睇佢守唔守得住。`; }
+  else if (dR != null && dR < 0.02) { state = '接近阻力'; stateText = `股價離阻力位 ${money(r1)} 只係 ${(dR * 100).toFixed(1)}%，要睇佢升唔升得穿。`; }
+  else if (!s1) { state = '跌穿支撐'; stateText = '股價喺近期低位附近，下面暫時搵唔到明顯支持位。'; }
+  else { state = '區間整理'; stateText = `股價喺支持位 ${money(s1)} 同阻力位 ${r1 ? money(r1) : '—'} 之間上落。`; }
+
+  const scenarios = [
+    {
+      key: 'hold', label: '守住支撐',
+      text: s1 ? `如果收市企穩喺 ${money(s1)} 以上，代表喺呢個價有人願意接貨，股價可能繼續喺 ${money(s1)}–${r1 ? money(r1) : '高位'} 之間上落。可以留意成交量：跌到支持位時成交減少，通常代表賣壓減弱。` : '下面暫時冇明顯支持位，可以參考 50 日線或者 200 日線。',
+    },
+    {
+      key: 'break', label: '跌穿支撐',
+      text: s1 ? `如果收市跌穿 ${money(s1)}，支持位可能變成新嘅阻力。${s2 ? `下一個支持位喺 ${money(s2)}（比現價 ${pct(s2 / p - 1)}）。` : '下面暫時冇下一個明顯支持位。'}好多人會將止蝕設喺支持位下面少少，例如 ${money(s1 * 0.97)}（低 3%），避免越跌越多。` : '股價已經喺近期低位附近。跌勢中嘅股票唔好急住「撈底」，等企穩先再諗。',
+    },
+    {
+      key: 'breakout', label: '突破阻力',
+      text: r1 ? `如果收市升穿 ${money(r1)}，而成交量明顯增加，突破會比較可信，之後呢個價可能變成新支持位。${r2 ? `再上面嘅阻力位喺 ${money(r2)}（比現價 ${pct(r2 / p - 1)}）。` : `再上面就係一年高位 ${money(tech.hi52)}。`}突破失敗（升穿後又跌返落嚟）都好常見，唔好一升就追。` : `股價已經喺高位附近。創新高嘅股票冇上方阻力，但亦容易回吐，追高要預先諗好喺邊度止蝕。`,
+    },
+  ];
+  return { price: p, s1, s2, r1, r2, dS, dR, state, stateText, scenarios, m50: tech.m50, m200: tech.m200 };
+}
+
 /* ======================= 綜合結論 ======================= */
+
+const tag = (score, [good, mid, bad]) => (score == null ? null : score >= 65 ? { text: good, status: 'good' } : score >= 45 ? { text: mid, status: 'mid' } : { text: bad, status: 'bad' });
 
 /**
  * 「相對值得考慮」/「中性」/「風險較高」
+ * - 綜合分數 = 有數據嘅分項（技術、基本、籌碼、分析員）平均
  * - 示範（假）財務數據唔會計入結論。
  * - ETF 本身已分散風險，額外加 5 分。
  */
-export function verdict(tech, fund, { fundIsReal, isEtf }) {
+export function verdict(tech, fund, { fundIsReal, isEtf, chip, analyst }) {
   const useFund = fund && fundIsReal;
-  let score = useFund ? Math.round(tech.score * 0.5 + fund.score * 0.5) : tech.score;
+  const subs = [
+    { key: 'tech', label: '技術面', score: tech.score, tag: tag(tech.score, ['偏強', '中性震盪', '偏弱']) },
+    { key: 'fund', label: '基本面', score: useFund ? fund.score : null, tag: useFund ? tag(fund.score, ['穩健', '一般', '偏弱']) : null },
+    { key: 'chip', label: '籌碼面', score: chip?.score ?? null, tag: tag(chip?.score ?? null, ['偏正面', '中性', '偏負面']) },
+    { key: 'analyst', label: '分析員', score: analyst?.score ?? null, tag: tag(analyst?.score ?? null, ['睇好', '中性', '保守']) },
+  ];
+  const have = subs.filter((x) => x.score != null);
+  let score = Math.round(have.reduce((a, b) => a + b.score, 0) / have.length);
   if (isEtf) score = Math.min(100, score + 5);
 
   const reasons = [], risks = [];
-  for (const it of [...tech.items, ...(useFund ? fund.items : [])]) {
+  for (const it of [...tech.items, ...(useFund ? fund.items : []), ...(chip?.items || []), ...(analyst?.items || [])]) {
     if (it.status === 'good') reasons.push(`${it.label}：${it.text}`);
     if (it.status === 'bad') risks.push(`${it.label}：${it.text}`);
   }
@@ -177,11 +281,22 @@ export function verdict(tech, fund, { fundIsReal, isEtf }) {
   if (score < 45 || hardRisk) level = 'risky';
   else if (score >= 65) level = 'consider';
 
+  // 一句總結（好似「決策導航」）
+  const bits = [];
+  if (useFund) {
+    const val = fund.parts.valuation[0];
+    bits.push(`${fund.score >= 65 ? '公司基本面穩健' : fund.score >= 45 ? '公司基本面一般' : '公司基本面偏弱'}${val <= 9 ? '，但估值偏高' : val >= 25 ? '，估值合理' : ''}`);
+  }
+  bits.push(tech.score >= 65 ? '技術面偏強，處於升勢' : tech.score >= 45 ? '技術面中性震盪' : '技術面偏弱，處於跌勢或者轉弱');
+  if (chip) bits.push(chip.score >= 65 ? '籌碼偏正面' : chip.score >= 45 ? '籌碼中性' : '籌碼偏負面（例如沽空偏多）');
+  if (analyst) bits.push(analyst.score >= 65 ? '分析員普遍睇好' : analyst.score >= 45 ? '分析員看法中性' : '分析員偏保守');
+  const headline = `${bits.join('；')}。`;
+
   const LABEL = { consider: '相對值得考慮', neutral: '中性', risky: '風險較高' };
   const SUMMARY = {
     consider: '數據上優點多過缺點，趨勢同風險都算健康。可以放入「想研究」清單，再睇埋公司業務同新聞先決定。',
     neutral: '有好有壞，未有清晰優勢。可以繼續觀察，等趨勢或者業績明朗啲先再諗。',
     risky: '有明顯風險訊號（例如波動好大、長期跌勢或者蝕錢）。新手要特別小心，就算買都只用好細比例嘅資金。',
   };
-  return { level, label: LABEL[level], summary: SUMMARY[level], score, usedFund: !!useFund, reasons: reasons.slice(0, 6), risks: risks.slice(0, 6) };
+  return { level, label: LABEL[level], summary: SUMMARY[level], headline, subs, score, usedFund: !!useFund, reasons: reasons.slice(0, 6), risks: risks.slice(0, 6) };
 }

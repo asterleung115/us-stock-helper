@@ -233,8 +233,9 @@ export async function getStock(rawTicker) {
   nextEarnings = snap?.nextEarnings || null;
   const fundUpdated = snap?.updated || null;
   const exchange = snap?.exchange || null;
+  const street = snap?.street || null; // 籌碼同分析員（只有每日快照有）
 
-  const data = { ticker, prices, priceSource, quote, fund, fundSource, info, notes, etf, nextEarnings, fundUpdated, exchange };
+  const data = { ticker, prices, priceSource, quote, fund, fundSource, info, notes, etf, nextEarnings, fundUpdated, exchange, street };
   cache.set(ticker, { at: Date.now(), data });
   return data;
 }

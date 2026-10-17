@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Plus } from 'lucide-react';
 import { getStock, getMarket } from '../lib/api.js';
-import { technical, fundamental, verdict } from '../lib/analysis.js';
+import { technical, fundamental, verdict, chips, analysts } from '../lib/analysis.js';
 import { CompareChart } from '../components/Charts.jsx';
 import { Card, H2, Button, Loading, ErrorState, EmptyState, RangeTabs, Disclaimer, Pill, SourceBadge } from '../components/ui.jsx';
 import { money, pct, upDown } from '../lib/format.js';
@@ -29,7 +29,7 @@ export default function ComparePage({ setTicker, go }) {
           if (d.failed) return d;
           const tech = technical(d.prices, market);
           const fund = d.fund ? fundamental(d.fund) : null;
-          const v = verdict(tech, fund, { fundIsReal: ['finnhub', 'alphavantage', 'snapshot-fund'].includes(d.fundSource), isEtf: d.fundSource === 'etf' });
+          const v = verdict(tech, fund, { fundIsReal: ['finnhub', 'alphavantage', 'snapshot-fund'].includes(d.fundSource), isEtf: d.fundSource === 'etf', chip: chips(d.street), analyst: analysts(d.street, tech.price) });
           return { ...d, tech, fundA: fund, v };
         });
         setState({ loading: false, error: null, rows });

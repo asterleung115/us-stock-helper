@@ -27,6 +27,7 @@ import yfinance as yf
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "public" / "data" / "screener.json"
+MARKET = ROOT / "public" / "data" / "market.json"
 HISTORY = ROOT / "public" / "data" / "picks-history.json"  # workflow 會由 history 分支攞返舊記錄
 TOP_N = 10
 BENCH = "SPY"  # 用嚟比較表現嘅大市基準
@@ -77,12 +78,14 @@ def price_metrics(close: pd.Series):
     logr = (c / c.shift(1)).apply(math.log).dropna()
     return {
         "price": round(p, 2),
+        "r1d": ret(1),
         "r1m": ret(21), "r3m": ret(63), "r6m": ret(126), "r1y": ret(min(251, len(c) - 1)),
         "ma50": float(c.tail(50).mean()),
         "ma200": float(c.tail(200).mean()) if len(c) >= 200 else None,
         "rsi": rsi(c),
         "vol": float(logr.tail(252).std() * math.sqrt(252)),
         "fromHi": float(p / c.tail(252).max() - 1),
+        "fromLo": float(p / c.tail(252).min() - 1),
     }
 
 
@@ -139,6 +142,97 @@ def update_history(market_date, bench_price, picks, by_t):
     hist = hist[-800:]  # 大約 3 年
     HISTORY.write_text(json.dumps(hist, ensure_ascii=False, separators=(",", ":")))
     return len(hist)
+
+
+INDICES = [("^GSPC", "標普 500"), ("^IXIC", "納斯達克"), ("^DJI", "道瓊斯"), ("^RUT", "羅素 2000"), ("^VIX", "VIX 恐慌指數")]
+
+
+def clamp(x, lo=0.0, hi=100.0):
+    return max(lo, min(hi, x))
+
+
+def build_market(rows, market_date):
+    """市場總覽：指數、升跌家數、自製恐懼貪婪指數、大市貢獻、行業表現、升跌榜"""
+    idx = yf.download([s for s, _ in INDICES], period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False)
+    indices, closes = [], {}
+    for sym, name in INDICES:
+        try:
+            c = idx[sym]["Close"].dropna()
+            closes[sym] = c
+            indices.append({"t": sym, "name": name, "price": round(float(c.iloc[-1]), 2),
+                            "chg": round(float(c.iloc[-1] - c.iloc[-2]), 2), "pct": float(c.iloc[-1] / c.iloc[-2] - 1),
+                            "spark": [round(float(x), 2) for x in c.tail(60)]})
+        except Exception as e:
+            print(f"指數 {sym} 失敗：{e}", file=sys.stderr)
+
+    valid = [r for r in rows if r.get("r1d") is not None]
+    up = sum(r["r1d"] > 0.0005 for r in valid)
+    down = sum(r["r1d"] < -0.0005 for r in valid)
+    above50 = [r["price"] > r["ma50"] for r in valid if r.get("ma50")]
+    above200 = [r["price"] > r["ma200"] for r in valid if r.get("ma200")]
+    highs = sum(r["fromHi"] >= -0.01 for r in valid)
+    lows = sum(r["fromLo"] <= 0.01 for r in valid)
+    breadth = {
+        "up": up, "down": down, "flat": len(valid) - up - down,
+        "above50": sum(above50) / len(above50) if above50 else None,
+        "above200": sum(above200) / len(above200) if above200 else None,
+        "highs": highs, "lows": lows,
+    }
+
+    # 自製「恐懼貪婪指數」：5 個 0–100 分項嘅平均（概念參考 CNN Fear & Greed，但計法簡化咗）
+    parts = []
+    vix = closes.get("^VIX")
+    if vix is not None and len(vix) > 20:
+        lo, hi, v = float(vix.min()), float(vix.max()), float(vix.iloc[-1])
+        parts.append({"key": "vix", "label": "VIX 恐慌指數", "score": clamp(100 * (1 - (v - lo) / (hi - lo))) if hi > lo else 50,
+                      "text": f"VIX {v:.1f}，一年內介乎 {lo:.1f}–{hi:.1f}。VIX 越高代表市場越驚。"})
+    spx = closes.get("^GSPC")
+    if spx is not None and len(spx) > 125:
+        gap = float(spx.iloc[-1] / spx.tail(125).mean() - 1)
+        parts.append({"key": "momentum", "label": "大市動力", "score": clamp(50 + gap * 500),
+                      "text": f"標普 500 比 125 日平均{'高' if gap >= 0 else '低'} {abs(gap) * 100:.1f}%。"})
+        parts.append({"key": "rsi", "label": "大市 RSI", "score": clamp(rsi(spx)),
+                      "text": f"標普 500 嘅 14 日 RSI 係 {rsi(spx):.0f}。"})
+    if breadth["above50"] is not None:
+        parts.append({"key": "breadth", "label": "市場闊度", "score": clamp(breadth["above50"] * 100),
+                      "text": f"{breadth['above50'] * 100:.0f}% 成份股高過 50 日線。"})
+    parts.append({"key": "highlow", "label": "新高 vs 新低", "score": clamp(100 * highs / (highs + lows)) if highs + lows else 50,
+                  "text": f"{highs} 隻接近一年高位，{lows} 隻接近一年低位。"})
+    fg = sum(p["score"] for p in parts) / len(parts)
+    label = "極度恐懼" if fg < 25 else "恐懼" if fg < 45 else "中性" if fg <= 55 else "貪婪" if fg <= 75 else "極度貪婪"
+
+    # 大市貢獻：每隻股票對標普 500 嘅影響 ≈ 市值權重 × 當日升跌 × 指數昨收
+    with_cap = [r for r in valid if r.get("mcap")]
+    total = sum(r["mcap"] / (1 + r["r1d"]) for r in with_cap) or 1
+    spx_prev = float(spx.iloc[-2]) if spx is not None and len(spx) > 1 else None
+    contrib = []
+    for r in with_cap:
+        w = r["mcap"] / (1 + r["r1d"]) / total
+        contrib.append({"t": r["t"], "name": r["name"], "pct": r["r1d"], "pts": round(w * r["r1d"] * spx_prev, 2) if spx_prev else None, "w": w})
+    contrib.sort(key=lambda x: x["pts"] or 0)
+
+    sectors = {}
+    for r in with_cap:
+        s = sectors.setdefault(r.get("sector") or "其他", {"cap": 0, "d": 0, "m": 0, "n": 0})
+        s["cap"] += r["mcap"]; s["d"] += r["mcap"] * r["r1d"]; s["m"] += r["mcap"] * (r.get("r1m") or 0); s["n"] += 1
+    sector_list = sorted(({"sector": k, "n": v["n"], "r1d": v["d"] / v["cap"], "r1m": v["m"] / v["cap"]} for k, v in sectors.items()), key=lambda x: -x["r1d"])
+
+    movers = sorted(valid, key=lambda r: r["r1d"])
+    slim = lambda r: {"t": r["t"], "name": r["name"], "price": r["price"], "pct": r["r1d"]}  # noqa: E731
+    out = {
+        "date": market_date,
+        "updated": datetime.now(timezone.utc).isoformat(timespec="minutes"),
+        "indices": indices,
+        "breadth": breadth,
+        "fearGreed": {"score": round(fg), "label": label, "parts": [{**p, "score": round(p["score"])} for p in parts]},
+        "contrib": {"pos": [c for c in contrib[::-1][:8] if (c["pts"] or 0) > 0], "neg": [c for c in contrib[:8] if (c["pts"] or 0) < 0]},
+        "sectors": sector_list,
+        "gainers": [slim(r) for r in movers[::-1][:8]],
+        "losers": [slim(r) for r in movers[:8]],
+    }
+    out["tickers"] = sorted({x["t"] for x in out["contrib"]["pos"] + out["contrib"]["neg"] + out["gainers"] + out["losers"]})
+    MARKET.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+    print(f"::notice title=市場總覽::{market_date} 升 {up} 跌 {down}，恐懼貪婪 {round(fg)}（{label}）")
 
 
 def main():
@@ -223,6 +317,10 @@ def main():
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+    try:
+        build_market(rows, market_date)
+    except Exception as e:
+        print(f"::warning title=市場總覽::失敗：{e}")
     n_hist = update_history(market_date, bench_price, picks, {r["t"]: r for r in rows})
     print("完成：", {k: len(v) for k, v in qual.items()}, f"；歷史記錄 {n_hist} 日")
     # GitHub Actions 註解：喺 run 頁面一眼睇到結果
